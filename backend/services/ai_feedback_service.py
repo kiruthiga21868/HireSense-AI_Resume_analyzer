@@ -31,13 +31,35 @@ def generate_ai_feedback(
     {job_description}
     """
 
-    response = (
-        genai.GenerativeModel(
-            "gemini-2.5-flash"
-        ).generate_content(
+    model = genai.GenerativeModel(
+        "gemini-2.5-flash"
+    )
+
+    try:
+
+        response = model.generate_content(
             prompt
         )
-    )
+
+    except Exception as e:
+
+        print(
+            f"Gemini Error: {e}"
+        )
+
+        return {
+            "strengths": [
+                "AI feedback unavailable"
+            ],
+            "weaknesses": [
+                "Gemini quota exceeded"
+            ],
+            "recommendations": [
+                "Try again later"
+            ],
+            "hiring_decision":
+                "Pending Review"
+        }
 
     cleaned = (
         response.text

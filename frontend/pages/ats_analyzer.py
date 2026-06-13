@@ -4,6 +4,7 @@ import sys
 import os
 import google.generativeai as genai
 import json
+import pandas as pd
 
 sys.path.append(
     os.path.abspath(
@@ -18,7 +19,15 @@ sys.path.append(
 from backend.services.ats_service import (
     calculate_semantic_score,
     calculate_skill_score,
-    get_missing_skills
+    get_missing_skills,
+    calculate_project_score,
+    calculate_education_score,
+    calculate_experience_score,
+    calculate_certification_score
+)
+
+from backend.services.ats_result_service import (
+    save_ats_result
 )
 
 from backend.services.ai_feedback_service import (
@@ -29,25 +38,21 @@ from backend.utils.gemini_parser import (
     parse_resume_with_gemini
 )
 
-from backend.services.ats_service import (
-    calculate_project_score,
-    calculate_education_score,
-    calculate_experience_score,
-    calculate_certification_score
-)
-
 st.title(
     "🎯 ATS Resume Analyzer"
 )
 
-uploaded_file = st.file_uploader(
-    "Upload Resume",
-    type=["pdf"]
+uploaded_files = st.file_uploader(
+    "Upload Resumes",
+    type=["pdf"],
+    accept_multiple_files=True
 )
 
 job_description = st.text_area(
     "Paste Job Description"
 )
+
+ranking_data = []
 
 def extract_text_from_pdf(pdf_file):
 
@@ -64,46 +69,54 @@ def extract_text_from_pdf(pdf_file):
     return text
 
 
-if uploaded_file and job_description:
+if uploaded_files and job_description:
 
-    text = extract_text_from_pdf(
-        uploaded_file
-    )
+    for uploaded_file in uploaded_files:
 
-    candidate = parse_resume_with_gemini(
-        text
-    )
+        st.markdown("---")
 
-    resume_skills = candidate.get(
-        "skills",
-        []
-    )
+        st.subheader(
+            f"📄 {uploaded_file.name}"
+        )
 
-    projects = candidate.get(
-        "projects",
-        []
-    )
+        text = extract_text_from_pdf(
+            uploaded_file
+        )
 
-    education = candidate.get(
-        "education",
-        []
-    )
+        candidate = parse_resume_with_gemini(
+            text
+        )
 
-    experience_years = candidate.get(
-        "years_of_experience",
-        0
-    )
+        resume_skills = candidate.get(
+            "skills",
+            []
+        )
 
-    certifications = candidate.get(
-        "certifications",
-        []
-    )
+        projects = candidate.get(
+            "projects",
+            []
+        )
 
-    st.write(
-        resume_skills
-    )
+        education = candidate.get(
+            "education",
+            []
+        )
 
-    jd_prompt = f"""
+        experience_years = candidate.get(
+            "years_of_experience",
+            0
+        )
+
+        certifications = candidate.get(
+            "certifications",
+            []
+        )
+
+        st.write(
+            resume_skills
+        )
+
+        jd_prompt = f"""
 Extract only technical skills from this Job Description.
 
 Return JSON only.
@@ -119,174 +132,259 @@ Job Description:
 {job_description}
 """
 
-    response = (
-        genai.GenerativeModel(
-            "gemini-2.5-flash"
-        ).generate_content(
-            jd_prompt
+        response = (
+            genai.GenerativeModel(
+                "gemini-2.5-flash"
+            ).generate_content(
+                jd_prompt
+            )
         )
-    )
 
-    cleaned = (
-        response.text
-        .replace("```json", "")
-        .replace("```", "")
-        .strip()
-    )
-
-    jd_data = json.loads(
-        cleaned
-    )
-
-    jd_skills = jd_data["skills"]
-
-    st.subheader(
-        "JD Skills"
-    )
-
-    st.write(
-        jd_skills
-    )
-
-    semantic_score = (
-        calculate_semantic_score(
-            text,
-            job_description
+        cleaned = (
+            response.text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
         )
-    )
 
-    skill_score = (
-        calculate_skill_score(
-            resume_skills,
+        jd_data = json.loads(
+            cleaned
+        )
+
+        jd_skills = jd_data["skills"]
+
+        st.subheader(
+            "JD Skills"
+        )
+
+        st.write(
             jd_skills
         )
-    )
 
-    project_score = (
-        calculate_project_score(
-            projects
+        semantic_score = (
+            calculate_semantic_score(
+                text,
+                job_description
+            )
         )
-    )
 
-    education_score = (
-        calculate_education_score(
-            education
+        skill_score = (
+            calculate_skill_score(
+                resume_skills,
+                jd_skills
+            )
         )
-    )
 
-    experience_score = (
-        calculate_experience_score(
-            experience_years
+        project_score = (
+            calculate_project_score(
+                projects
+            )
         )
-    )
 
-    certification_score = (
-        calculate_certification_score(
-            certifications
+        education_score = (
+            calculate_education_score(
+                education
+            )
         )
-    )
 
-    final_score = round(
-
-        semantic_score * 0.30 +
-
-        skill_score * 0.25 +
-
-        project_score * 0.15 +
-
-        education_score * 0.10 +
-
-        experience_score * 0.10 +
-
-        certification_score * 0.10,
-
-        2
-    )
-
-    missing_skills = (
-        get_missing_skills(
-            resume_skills,
-            jd_skills
+        experience_score = (
+            calculate_experience_score(
+                experience_years
+            )
         )
-    )
 
-    feedback = (
-        generate_ai_feedback(
-            text,
-            job_description
+        certification_score = (
+            calculate_certification_score(
+                certifications
+            )
         )
-    )
 
-    st.subheader(
-        "ATS Results"
-    )
+        final_score = round(
 
-    st.metric(
-        "Resume Match %",
-        f"{final_score}%"
-    )
+            semantic_score * 0.30 +
 
-    st.subheader(
-        "📊 Detailed Score Breakdown"
-    )
+            skill_score * 0.25 +
 
-    st.write(
-        f"Semantic Match: {semantic_score}%"
-    )
+            project_score * 0.15 +
 
-    st.write(
-        f"Skills Match: {skill_score}%"
-    )
+            education_score * 0.10 +
 
-    st.write(
-        f"Projects Match: {project_score}%"
-    )
+            experience_score * 0.10 +
 
-    st.write(
-        f"Education Match: {education_score}%"
-    )
+            certification_score * 0.10,
 
-    st.write(
-        f"Experience Match: {experience_score}%"
-    )
+            2
+        )
 
-    st.write(
-        f"Certification Match: {certification_score}%"
-    )
+        missing_skills = (
+            get_missing_skills(
+                resume_skills,
+                jd_skills
+            )
+        )
 
-    st.subheader(
-        "Missing Skills"
-    )
+        feedback = (
+            generate_ai_feedback(
+                text,
+                job_description
+            )
+        )
 
-    st.write(
-        missing_skills
-    )
+        save_ats_result({
 
-    st.subheader(
-        "💪 Strengths"
-    )
+            "candidate_name":
+                candidate.get("name"),
 
-    for item in feedback["strengths"]:
-        st.success(item)
+            "candidate_email":
+                candidate.get("email"),
 
-    st.subheader(
-        "⚠ Weaknesses"
-    )
+            "job_description":
+                job_description,
 
-    for item in feedback["weaknesses"]:
-        st.warning(item)
+            "semantic_score":
+                semantic_score,
 
-    st.subheader(
-        "📈 Recommendations"
-    )
+            "skill_score":
+                skill_score,
 
-    for item in feedback["recommendations"]:
-        st.info(item)
+            "project_score":
+                project_score,
 
-    st.subheader(
-        "🎯 Hiring Decision"
-    )
+            "education_score":
+                education_score,
 
-    st.success(
-        feedback["hiring_decision"]
-    )
+            "experience_score":
+                experience_score,
+
+            "certification_score":
+                certification_score,
+
+            "final_score":
+                final_score,
+
+            "strengths":
+                feedback["strengths"],
+
+            "weaknesses":
+                feedback["weaknesses"],
+
+            "recommendations":
+                feedback["recommendations"],
+
+            "hiring_decision":
+                feedback["hiring_decision"]
+
+        })
+
+        ranking_data.append({
+            "Candidate":
+                candidate.get("name"),
+            "Match Score":
+                final_score,
+            "Decision":
+                feedback["hiring_decision"]
+        })
+
+        st.markdown("---")
+
+        st.header(
+            f"👤 {candidate.get('name', 'Unknown Candidate')}"
+        )
+
+        st.subheader(
+            "ATS Results"
+        )
+
+        st.metric(
+            "Resume Match %",
+            f"{final_score}%"
+        )
+
+        st.markdown("---")
+
+        st.subheader(
+            "📊 Detailed Score Breakdown"
+        )
+
+        st.write(
+            f"Semantic Match: {semantic_score}%"
+        )
+
+        st.write(
+            f"Skills Match: {skill_score}%"
+        )
+
+        st.write(
+            f"Projects Match: {project_score}%"
+        )
+
+        st.write(
+            f"Education Match: {education_score}%"
+        )
+
+        st.write(
+            f"Experience Match: {experience_score}%"
+        )
+
+        st.write(
+            f"Certification Match: {certification_score}%"
+        )
+
+        st.subheader(
+            "Missing Skills"
+        )
+
+        st.write(
+            missing_skills
+        )
+
+        st.subheader(
+            "💪 Strengths"
+        )
+
+        for item in feedback["strengths"]:
+            st.success(item)
+
+        st.subheader(
+            "⚠ Weaknesses"
+        )
+
+        for item in feedback["weaknesses"]:
+            st.warning(item)
+
+        st.subheader(
+            "📈 Recommendations"
+        )
+
+        for item in feedback["recommendations"]:
+            st.info(item)
+
+        st.subheader(
+            "🎯 Hiring Decision"
+        )
+
+        st.success(
+            feedback["hiring_decision"]
+        )
+
+    if ranking_data:
+
+        st.markdown("---")
+
+        st.subheader(
+            "🏆 Candidate Ranking Summary"
+        )
+
+        ranking_df = pd.DataFrame(
+            ranking_data
+        )
+
+        ranking_df = ranking_df.sort_values(
+            by="Match Score",
+            ascending=False
+        )
+
+        st.dataframe(
+            ranking_df,
+            use_container_width=True
+        )
