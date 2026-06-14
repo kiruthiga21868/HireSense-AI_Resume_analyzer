@@ -1,8 +1,16 @@
 import chromadb
 
-client = chromadb.PersistentClient(
-    path="chromadb_store"
-)
+import streamlit as st
+import chromadb
+
+@st.cache_resource
+def get_chroma_client():
+
+    return chromadb.PersistentClient(
+        path="chromadb_store"
+    )
+
+client = get_chroma_client()
 
 collection = client.get_or_create_collection(
     name="candidates",
